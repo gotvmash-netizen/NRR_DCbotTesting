@@ -603,7 +603,9 @@ async function getStealNoStealGame(gameId) {
     'SELECT game_data FROM steal_no_steal_games WHERE game_id = $1',
     [gameId]
   );
-  return result.rows[0]?.game_data || null;
+  const row = result.rows[0] || null;
+  console.info('[StealOrNoSteal][DB] Lookup', { gameId, found: Boolean(row), storedGameId: row?.game_data?.id ?? null });
+  return row?.game_data || null;
 }
 
 async function saveStealNoStealGame(game) {
@@ -613,10 +615,12 @@ async function saveStealNoStealGame(game) {
     ON CONFLICT (game_id)
     DO UPDATE SET game_data = EXCLUDED.game_data, updated_at = NOW()
   `, [game.id, game.guildId, JSON.stringify(game)]);
+  console.info('[StealOrNoSteal][DB] Saved', { gameId: game.id, guildId: game.guildId, stage: game.stage });
 }
 
 async function deleteStealNoStealGame(gameId) {
-  await query('DELETE FROM steal_no_steal_games WHERE game_id = $1', [gameId]);
+  const result = await query('DELETE FROM steal_no_steal_games WHERE game_id = $1', [gameId]);
+  console.info('[StealOrNoSteal][DB] Deleted', { gameId, rowCount: result.rowCount });
 }
 
 module.exports = {
