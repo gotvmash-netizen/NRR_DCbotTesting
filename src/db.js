@@ -57,6 +57,13 @@ async function migrate() {
       PRIMARY KEY(event_id,message_id)
     );
 
+    CREATE TABLE IF NOT EXISTS steal_no_steal_positions (
+      guild_id TEXT NOT NULL,
+      position INTEGER NOT NULL CHECK (position BETWEEN 0 AND 2),
+      good_count INTEGER NOT NULL DEFAULT 0 CHECK (good_count >= 0),
+      PRIMARY KEY (guild_id, position)
+    );
+
     CREATE TABLE IF NOT EXISTS annihilate_sessions (
       id BIGSERIAL PRIMARY KEY,
       guild_id TEXT NOT NULL,
