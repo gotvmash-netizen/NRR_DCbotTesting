@@ -52,23 +52,6 @@ function weightedGoodPosition(counts) {
   return 2;
 }
 
-async function chooseGoodPosition(guildId) {
-  const result = await db.query(
-    'SELECT position, good_count FROM steal_no_steal_positions WHERE guild_id = $1',
-    [guildId]
-  );
-  const counts = [0, 0, 0];
-  for (const row of result.rows) counts[Number(row.position)] = Number(row.good_count);
-  const position = weightedGoodPosition(counts);
-  await db.query(`
-    INSERT INTO steal_no_steal_positions (guild_id, position, good_count)
-    VALUES ($1, $2, 1)
-    ON CONFLICT (guild_id, position)
-    DO UPDATE SET good_count = steal_no_steal_positions.good_count + 1
-  `, [guildId, position]);
-  return position;
-}
-
 function panel(title, body, rows = []) {
   const container = new ContainerBuilder()
     .setAccentColor(0xe67e22)
@@ -150,6 +133,7 @@ async function showDecision(game) {
 }
 
 async function startCommand(interaction) {
+  if (!interaction.guildId) return interaction.reply({ content: '❌ This game can only be played inside a server.', ephemeral: true });
   const target = interaction.options.getUser('user', true);
   if (target.bot) return interaction.reply({ content: '❌ You cannot challenge a bot to this game.', ephemeral: true });
   if (target.id === interaction.user.id) return interaction.reply({ content: '❌ You cannot challenge yourself.', ephemeral: true });
@@ -159,7 +143,7 @@ async function startCommand(interaction) {
     '<@' + target.id + '>, <@' + interaction.user.id + '> has challenged you to **Steal Or No Steal!**\n\nDo you accept the challenge?',
     [challengeRow(gameId)]
   );
-  await interaction.reply({ ...challenge, allowedMentions: { parse: [], users: [target.id] } });
+  await interaction.reply({ ...challenge, allowedMentions: { parse: [], users: [target.id, interaction.user.id] } });
   const publicMessage = await interaction.fetchReply();
   GAMES.set(gameId, {
     id: gameId,
