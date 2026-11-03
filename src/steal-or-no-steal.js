@@ -164,9 +164,11 @@ async function startCommand(interaction) {
   if (target.bot) return interaction.reply({ content: '❌ You cannot challenge a bot to this game.', ephemeral: true });
   if (target.id === interaction.user.id) return interaction.reply({ content: '❌ You cannot challenge yourself.', ephemeral: true });
 
-  const gameId = interaction.id;
   await interaction.deferReply();
   const publicMessage = await interaction.fetchReply();
+  // Use the public challenge message ID as the durable game key. Every challenge
+  // button is attached to this message, making the stored key easy to verify.
+  const gameId = publicMessage.id;
   const game = {
     id: gameId,
     guildId: interaction.guildId,
@@ -179,6 +181,7 @@ async function startCommand(interaction) {
     finished: false,
   };
   await saveGame(game);
+  console.info('[StealOrNoSteal] Game created', { gameId, messageId: publicMessage.id, guildId: game.guildId, stage: game.stage });
   await interaction.editReply({
     ...panel(
       '## 🧳 Steal Or No Steal?',
@@ -191,7 +194,9 @@ async function startCommand(interaction) {
 
 async function onButton(interaction) {
   const [, action, gameId, value] = interaction.customId.split(':');
+  console.info('[StealOrNoSteal] Button received', { action, gameId, messageId: interaction.message?.id, guildId: interaction.guildId, customId: interaction.customId });
   const game = await getGame(gameId);
+  console.info('[StealOrNoSteal] Game lookup', { gameId, found: Boolean(game), finished: game?.finished ?? null, stage: game?.stage ?? null });
   if (!game || game.finished) {
     return interaction.reply({ content: 'This game is no longer active.', ephemeral: true });
   }
