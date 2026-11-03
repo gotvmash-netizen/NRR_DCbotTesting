@@ -11,7 +11,6 @@ const {
 const db = require('./db');
 
 const PREFIX = 'stealno:';
-const GAMES = new Map();
 const GOOD_THINGS = [
   '1,000,000, Million Dollars 💰💲',
   '100 Bucks 💵',
@@ -101,9 +100,31 @@ function spoilerResult(value) {
   return '||' + value + '||';
 }
 
+async function getGame(gameId) {
+  return db.getStealNoStealGame(gameId);
+}
+
+async function saveGame(game) {
+  await db.saveStealNoStealGame(game);
+}
+
+async function removeGame(gameId) {
+  await db.deleteStealNoStealGame(gameId);
+}
+
+async function getPublicMessage(client, game) {
+  const channel = await client.channels.fetch(game.channelId).catch(() => null);
+  if (!channel?.isTextBased()) throw new Error('Game channel is unavailable.');
+  const message = await channel.messages.fetch(game.messageId).catch(() => null);
+  if (!message) throw new Error('Game message is unavailable.');
+  return message;
+}
+
 async function finishGame(game, decision, interaction = null) {
   if (game.finished) return;
   game.finished = true;
+  game.stage = 'finished';
+  await saveGame(game);
   clearTimeout(game.decisionTimer);
   const playerB = '<@' + game.playerB + '>';
   const playerA = '<@' + game.playerA + '>';
@@ -113,23 +134,28 @@ async function finishGame(game, decision, interaction = null) {
   const reveal = panel('## 🧳 Steal Or No Steal?', action + '\n\n# ' + spoilerResult(game.result) + '\n\n-# Use /steal_or_no_steal to play again!');
   try {
     if (interaction) await interaction.update(reveal);
-    else await game.publicMessage.edit(reveal);
+    else {
+      const message = await getPublicMessage(interaction?.client || game.client, game);
+      await message.edit(reveal);
+    }
   } catch (error) {
     console.error('Steal Or No Steal reveal failed:', error);
   }
-  GAMES.delete(game.id);
+  await removeGame(game.id);
 }
 
-async function showDecision(game) {
+async function showDecision(game, client) {
   if (game.finished) return;
   game.stage = 'decision';
-  const content = panel(
+  game.decisionDeadline = Date.now() + 30_000;
+  await saveGame(game);
+  const message = await getPublicMessage(client, game);
+  await message.edit(panel(
     '## 🧳 Steal Or No Steal?',
     '<@' + game.playerB + '>, it is time to decide! Do you want to steal the suitcase or leave it with ' + '<@' + game.playerA + '>?\n\nYou have **30 seconds** to decide.',
     [decisionRow(game.id, true)]
-  );
-  await game.publicMessage.edit(content);
-  game.decisionTimer = setTimeout(() => finishGame(game, 'nosteal'), 30_000);
+  ));
+  game.decisionTimer = setTimeout(() => finishGame(game, 'nosteal', null, client).catch(error => console.error('Steal Or No Steal timeout failed:', error)), 30_000);
 }
 
 async function startCommand(interaction) {
@@ -137,30 +163,35 @@ async function startCommand(interaction) {
   const target = interaction.options.getUser('user', true);
   if (target.bot) return interaction.reply({ content: '❌ You cannot challenge a bot to this game.', ephemeral: true });
   if (target.id === interaction.user.id) return interaction.reply({ content: '❌ You cannot challenge yourself.', ephemeral: true });
+
   const gameId = interaction.id;
-  const challenge = panel(
-    '## 🧳 Steal Or No Steal?',
-    '<@' + target.id + '>, <@' + interaction.user.id + '> has challenged you to **Steal Or No Steal!**\n\nDo you accept the challenge?',
-    [challengeRow(gameId)]
-  );
-  await interaction.reply({ ...challenge, allowedMentions: { parse: [], users: [target.id, interaction.user.id] } });
+  await interaction.deferReply();
   const publicMessage = await interaction.fetchReply();
-  GAMES.set(gameId, {
+  const game = {
     id: gameId,
     guildId: interaction.guildId,
     channelId: interaction.channelId,
+    messageId: publicMessage.id,
     playerA: interaction.user.id,
     playerB: target.id,
-    publicMessage,
     stage: 'challenge',
     extraUsed: false,
     finished: false,
+  };
+  await saveGame(game);
+  await interaction.editReply({
+    ...panel(
+      '## 🧳 Steal Or No Steal?',
+      '<@' + target.id + '>, <@' + interaction.user.id + '> has challenged you to **Steal Or No Steal!**\n\nDo you accept the challenge?',
+      [challengeRow(gameId)]
+    ),
+    allowedMentions: { parse: [], users: [target.id, interaction.user.id] },
   });
 }
 
 async function onButton(interaction) {
   const [, action, gameId, value] = interaction.customId.split(':');
-  const game = GAMES.get(gameId);
+  const game = await getGame(gameId);
   if (!game || game.finished) {
     return interaction.reply({ content: 'This game is no longer active.', ephemeral: true });
   }
@@ -171,8 +202,7 @@ async function onButton(interaction) {
     }
     if (game.stage !== 'challenge') return interaction.reply({ content: 'This challenge has already been answered.', ephemeral: true });
     if (action === 'decline') {
-      game.finished = true;
-      GAMES.delete(gameId);
+      await removeGame(gameId);
       return interaction.update(panel(
         '## 🧳 Steal Or No Steal?',
         '<@' + game.playerB + '> has declined the challenge. They chickened out!\n\n-# Use /steal_or_no_steal to play again!'
@@ -180,10 +210,6 @@ async function onButton(interaction) {
     }
 
     game.stage = 'pick';
-    await interaction.update(panel(
-      '## 🧳 Steal Or No Steal?',
-      '<@' + game.playerA + '>, your turn! Pick a suitcase. One has the good prize, and the other two have bad surprises. Choose wisely...',
-    ));
     const counts = await db.query(
       'SELECT position, good_count FROM steal_no_steal_positions WHERE guild_id = $1',
       [game.guildId]
@@ -200,6 +226,11 @@ async function onButton(interaction) {
       ON CONFLICT (guild_id, position)
       DO UPDATE SET good_count = steal_no_steal_positions.good_count + 1
     `, [game.guildId, goodPosition]);
+    await saveGame(game);
+    await interaction.update(panel(
+      '## 🧳 Steal Or No Steal?',
+      '<@' + game.playerA + '>, your turn! Pick a suitcase. One has the good prize, and the other two have bad surprises. Choose wisely...'
+    ));
     return interaction.followUp({
       ...panel(
         '## 🧳 Pick Your Suitcase',
@@ -219,6 +250,7 @@ async function onButton(interaction) {
     if (![0, 1, 2].includes(position)) return interaction.reply({ content: 'Invalid suitcase selection.', ephemeral: true });
     game.result = game.contents[position];
     game.stage = 'revealed';
+    await saveGame(game);
     await interaction.update(panel(
       '## 🧳 Your Suitcase',
       '# ' + spoilerResult(game.result) + '\n\n' +
@@ -227,12 +259,18 @@ async function onButton(interaction) {
         : '😬 Aw shucks! Convince <@' + game.playerB + '> to steal the suitcase so they get it instead of you!')
     ));
     setTimeout(async () => {
-      if (game.finished || game.stage !== 'revealed') return;
-      await game.publicMessage.edit(panel(
-        '## 🧳 Steal Or No Steal?',
-        '<@' + game.playerA + '> has picked their suitcase! <@' + game.playerB + '> will now have **30 seconds** to decide.'
-      ));
-      setTimeout(() => showDecision(game).catch(error => console.error('Steal Or No Steal decision prompt failed:', error)), 30_000);
+      try {
+        const latest = await getGame(game.id);
+        if (!latest || latest.stage !== 'revealed') return;
+        const message = await getPublicMessage(interaction.client, latest);
+        await message.edit(panel(
+          '## 🧳 Steal Or No Steal?',
+          '<@' + latest.playerA + '> has picked their suitcase! <@' + latest.playerB + '> will now have **30 seconds** to decide.'
+        ));
+        setTimeout(() => showDecision(latest, interaction.client).catch(error => console.error('Steal Or No Steal decision prompt failed:', error)), 30_000);
+      } catch (error) {
+        console.error('Steal Or No Steal reveal delay failed:', error);
+      }
     }, 5_000);
     return;
   }
@@ -252,8 +290,8 @@ async function onButton(interaction) {
     if (game.stage !== 'decision') return interaction.reply({ content: 'The decision period is not active.', ephemeral: true });
     if (game.extraUsed) return interaction.reply({ content: 'The extra 15 seconds have already been used.', ephemeral: true });
     game.extraUsed = true;
-    clearTimeout(game.decisionTimer);
-    game.decisionTimer = setTimeout(() => finishGame(game, 'nosteal'), 15_000);
+    game.decisionDeadline = Date.now() + 15_000;
+    await saveGame(game);
     return interaction.update(panel(
       '## 🧳 Steal Or No Steal?',
       '<@' + game.playerB + '>, you have **15 extra seconds** to decide!',
