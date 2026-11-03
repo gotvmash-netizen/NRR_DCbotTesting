@@ -492,7 +492,15 @@ async function handleInteraction(interaction) {
     if (interaction.commandName === 'stats_staff') return staffAnalytics.statsCommand(interaction, true);
     if (interaction.commandName === 'stats') return staffAnalytics.statsCommand(interaction, false);
     if (interaction.commandName === 'check_punishments') return staffAnalytics.checkPunishments(interaction);
-    if (interaction.commandName === 'steal_or_no_steal') return stealOrNoSteal.startCommand(interaction);
+    if (interaction.commandName === 'steal_or_no_steal') {
+      console.info('[StealOrNoSteal] Command dispatched', {
+        interactionId: interaction.id,
+        ageMs: Date.now() - interaction.createdTimestamp,
+        userId: interaction.user.id,
+        guildId: interaction.guildId,
+      });
+      return stealOrNoSteal.startCommand(interaction);
+    }
     if (interaction.commandName === 'start_wordkill') return wordkillSystem.startCommand(interaction);
     if (interaction.commandName === 'end_wordkill') return wordkillSystem.endCommand(interaction);
     if (interaction.commandName === 'start_pt') return politicalTriviaSystem.startCommand(interaction);

@@ -159,13 +159,44 @@ async function showDecision(game, client) {
 }
 
 async function startCommand(interaction) {
-  if (!interaction.guildId) return interaction.reply({ content: '❌ This game can only be played inside a server.', ephemeral: true });
-  const target = interaction.options.getUser('user', true);
-  if (target.bot) return interaction.reply({ content: '❌ You cannot challenge a bot to this game.', ephemeral: true });
-  if (target.id === interaction.user.id) return interaction.reply({ content: '❌ You cannot challenge yourself.', ephemeral: true });
+  // Acknowledge immediately so Discord's 3-second interaction deadline is not
+  // consumed by validation, database work, or message retrieval.
+  console.info('[StealOrNoSteal] Start command received', {
+    interactionId: interaction.id,
+    ageMs: Date.now() - interaction.createdTimestamp,
+    guildId: interaction.guildId,
+    userId: interaction.user.id,
+  });
+  const acknowledgementStartedAt = Date.now();
+  try {
+    await interaction.deferReply();
+    console.info('[StealOrNoSteal] Start command acknowledged', {
+      interactionId: interaction.id,
+      ageMs: Date.now() - interaction.createdTimestamp,
+      acknowledgementMs: Date.now() - acknowledgementStartedAt,
+    });
+  } catch (error) {
+    console.error('[StealOrNoSteal] Start command acknowledgement failed', {
+      interactionId: interaction.id,
+      ageMs: Date.now() - interaction.createdTimestamp,
+      acknowledgementMs: Date.now() - acknowledgementStartedAt,
+      code: error.code,
+      message: error.message,
+    });
+    throw error;
+  }
 
-  await interaction.deferReply();
+  if (!interaction.guildId) return interaction.editReply({ content: '❌ This game can only be played inside a server.' });
+  const target = interaction.options.getUser('user', true);
+  if (target.bot) return interaction.editReply({ content: '❌ You cannot challenge a bot to this game.' });
+  if (target.id === interaction.user.id) return interaction.editReply({ content: '❌ You cannot challenge yourself.' });
+
   const publicMessage = await interaction.fetchReply();
+  console.info('[StealOrNoSteal] Challenge reply fetched', {
+    interactionId: interaction.id,
+    messageId: publicMessage.id,
+    ageMs: Date.now() - interaction.createdTimestamp,
+  });
   // Use the public challenge message ID as the durable game key. Every challenge
   // button is attached to this message, making the stored key easy to verify.
   const gameId = publicMessage.id;
