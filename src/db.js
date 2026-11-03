@@ -64,6 +64,15 @@ async function migrate() {
       PRIMARY KEY (guild_id, position)
     );
 
+    CREATE TABLE IF NOT EXISTS steal_no_steal_games (
+      game_id TEXT PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      game_data JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_steal_no_steal_games_updated
+      ON steal_no_steal_games(updated_at);
+
     CREATE TABLE IF NOT EXISTS annihilate_sessions (
       id BIGSERIAL PRIMARY KEY,
       guild_id TEXT NOT NULL,
@@ -588,9 +597,34 @@ async function endEvent(eventId) {
   `, [eventId]);
 }
 
+
+async function getStealNoStealGame(gameId) {
+  const result = await query(
+    'SELECT game_data FROM steal_no_steal_games WHERE game_id = $1',
+    [gameId]
+  );
+  return result.rows[0]?.game_data || null;
+}
+
+async function saveStealNoStealGame(game) {
+  await query(`
+    INSERT INTO steal_no_steal_games (game_id, guild_id, game_data, updated_at)
+    VALUES ($1, $2, $3::jsonb, NOW())
+    ON CONFLICT (game_id)
+    DO UPDATE SET game_data = EXCLUDED.game_data, updated_at = NOW()
+  `, [game.id, game.guildId, JSON.stringify(game)]);
+}
+
+async function deleteStealNoStealGame(gameId) {
+  await query('DELETE FROM steal_no_steal_games WHERE game_id = $1', [gameId]);
+}
+
 module.exports = {
   query,
   migrate,
+  getStealNoStealGame,
+  saveStealNoStealGame,
+  deleteStealNoStealGame,
   ensureMember,
   setMemberActive,
   getStats,
