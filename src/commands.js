@@ -17,6 +17,7 @@ const guessPoliticianSystem = require('./guess-the-politician');
 const flagRushSystem = require('./flagrush');
 const chessPuzzleSystem = require('./chess-puzzle');
 const learningGames = require('./learning-games');
+const stealOrNoSteal = require('./steal-or-no-steal');
 const { isSuperuser, hasPermission } = require('./access');
 
 const COLORS = {
@@ -61,6 +62,8 @@ const commands = [
   new SlashCommandBuilder().setName('start_academics').setDescription('Start the Academic Game.')
     .addStringOption(o => o.setName('subject').setDescription('Choose a subject.').addChoices({name:'Math',value:'Math'},{name:'Science',value:'Science'},{name:'Physics',value:'Physics'},{name:'Chemistry',value:'Chemistry'},{name:'Biology',value:'Biology'})),
   new SlashCommandBuilder().setName('stop_academics').setDescription('Stop the Academic Game in this channel.'),
+  new SlashCommandBuilder().setName('steal_or_no_steal').setDescription('Challenge another member to Steal Or No Steal.')
+    .addUserOption(o => o.setName('user').setDescription('Member you want to challenge.').setRequired(true)),
 
   new SlashCommandBuilder().setName('start_chess_puzzle').setDescription('Start the Chess Puzzle minigame in this channel.'),
   new SlashCommandBuilder().setName('end_chess_puzzle').setDescription('End the active Chess Puzzle minigame in this channel.'),
@@ -472,6 +475,7 @@ async function handleRoleGiverButton(interaction) {
 }
 
 async function handleInteraction(interaction) {
+  if (interaction.isButton() && interaction.customId.startsWith('stealno:')) return stealOrNoSteal.onButton(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('learn:')) return learningGames.onButton(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('staffstats:punishments:')) return staffAnalytics.handleButton(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('rolegiver:get:')) return handleRoleGiverButton(interaction);
@@ -488,6 +492,7 @@ async function handleInteraction(interaction) {
     if (interaction.commandName === 'stats_staff') return staffAnalytics.statsCommand(interaction, true);
     if (interaction.commandName === 'stats') return staffAnalytics.statsCommand(interaction, false);
     if (interaction.commandName === 'check_punishments') return staffAnalytics.checkPunishments(interaction);
+    if (interaction.commandName === 'steal_or_no_steal') return stealOrNoSteal.startCommand(interaction);
     if (interaction.commandName === 'start_wordkill') return wordkillSystem.startCommand(interaction);
     if (interaction.commandName === 'end_wordkill') return wordkillSystem.endCommand(interaction);
     if (interaction.commandName === 'start_pt') return politicalTriviaSystem.startCommand(interaction);
