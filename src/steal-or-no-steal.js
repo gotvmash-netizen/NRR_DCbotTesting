@@ -120,7 +120,7 @@ async function getPublicMessage(client, game) {
   return message;
 }
 
-async function finishGame(game, decision, interaction = null) {
+async function finishGame(game, decision, interaction = null, client = null) {
   if (game.finished) return;
   game.finished = true;
   game.stage = 'finished';
@@ -135,7 +135,7 @@ async function finishGame(game, decision, interaction = null) {
   try {
     if (interaction) await interaction.update(reveal);
     else {
-      const message = await getPublicMessage(interaction?.client || game.client, game);
+      const message = await getPublicMessage(client || interaction?.client, game);
       await message.edit(reveal);
     }
   } catch (error) {
@@ -291,6 +291,11 @@ async function onButton(interaction) {
     if (game.extraUsed) return interaction.reply({ content: 'The extra 15 seconds have already been used.', ephemeral: true });
     game.extraUsed = true;
     game.decisionDeadline = Date.now() + 15_000;
+    clearTimeout(game.decisionTimer);
+    game.decisionTimer = setTimeout(
+      () => finishGame(game, 'nosteal', null, interaction.client).catch(error => console.error('Steal Or No Steal extra-time timeout failed:', error)),
+      15_000
+    );
     await saveGame(game);
     return interaction.update(panel(
       '## 🧳 Steal Or No Steal?',
