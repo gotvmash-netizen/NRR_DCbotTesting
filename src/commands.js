@@ -15,9 +15,11 @@ const wordkillSystem = require('./wordkill');
 const politicalTriviaSystem = require('./political-trivia');
 const guessPoliticianSystem = require('./guess-the-politician');
 const flagRushSystem = require('./flagrush');
+const mysteryGenSystem = require('./mysterygen');
 const chessPuzzleSystem = require('./chess-puzzle');
 const learningGames = require('./learning-games');
 const stealOrNoSteal = require('./steal-or-no-steal');
+const boosterAssets = require('./booster-assets');
 const { isSuperuser, hasPermission } = require('./access');
 
 const COLORS = {
@@ -27,6 +29,13 @@ const COLORS = {
 };
 
 const staffAnalytics = require('./staff-analytics');
+const staffRanking = require('./staff-ranking');
+
+const staffRankingCommand = new SlashCommandBuilder()
+  .setName('staff_ranking')
+  .setDescription('View the public Staff Team message and punishment rankings.')
+  .addStringOption(o => o.setName('category').setDescription('Initial ranking category.')
+    .addChoices({ name: 'Messages', value: 'messages' }, { name: 'Punishments', value: 'punishments' }));
 
 const commands = [
   new SlashCommandBuilder()
@@ -42,6 +51,8 @@ const commands = [
   new SlashCommandBuilder().setName('end_guess_politician').setDescription('End Guess The Politician in this channel.'),
   new SlashCommandBuilder().setName('start_flagrush').setDescription('Start FlagRush in this channel.'),
   new SlashCommandBuilder().setName('end_flagrush').setDescription('End FlagRush in this channel.'),
+  new SlashCommandBuilder().setName('start_mysterygen').setDescription('Start MysteryGen: guess everyday items from three clues.'),
+  new SlashCommandBuilder().setName('end_mysterygen').setDescription('End MysteryGen in this channel.'),
   new SlashCommandBuilder().setName('stats_staff').setDescription('View activity and moderation statistics for a staff member.')
     .addUserOption(o=>o.setName('user').setDescription('Staff member to inspect.')),
   new SlashCommandBuilder().setName('stats').setDescription('View message activity statistics for a regular member.')
@@ -148,6 +159,8 @@ const commands = [
     .addSubcommand(s => s.setName('remove-humiliation').setDescription('Remove Humiliation from a member.')
       .addUserOption(o => o.setName('member').setDescription('Member.').setRequired(true))
       .addIntegerOption(o => o.setName('amount').setDescription('Positive amount to remove.').setMinValue(1).setMaxValue(100000).setRequired(true))),
+
+  boosterAssets.command,
 ];
 
 function mention(id) { return `<@${id}>`; }
@@ -475,6 +488,7 @@ async function handleRoleGiverButton(interaction) {
 }
 
 async function handleInteraction(interaction) {
+  if (interaction.isStringSelectMenu() && interaction.customId === 'staff-ranking:category') return staffRanking.handleSelect(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('stealno:')) return stealOrNoSteal.onButton(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('learn:')) return learningGames.onButton(interaction);
   if (interaction.isButton() && interaction.customId.startsWith('staffstats:punishments:')) return staffAnalytics.handleButton(interaction);
@@ -483,12 +497,14 @@ async function handleInteraction(interaction) {
 
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'setup_rolegiver') return setupRoleGiver(interaction);
+    if (interaction.commandName === 'booster') return boosterAssets.handleCommand(interaction);
     if (interaction.commandName === 'make_news') return newsSystem.sendCustom(interaction);
     if (interaction.commandName === 'send_qotd') return qotdSystem.sendPanel({guild:interaction.guild,member:interaction.member,channel:interaction.channel,reply:(content)=>interaction.reply({content,ephemeral:true}),});
     if (interaction.commandName === 'createevent') return eventSystem.createEvent(interaction);
     if (interaction.commandName === 'send') return eventSystem.send(interaction);
     if (interaction.commandName === 'stick') return eventSystem.stick(interaction);
     if (interaction.commandName === 'end') return eventSystem.end(interaction);
+    if (interaction.commandName === 'staff_ranking') return staffRanking.handleCommand(interaction);
     if (interaction.commandName === 'stats_staff') return staffAnalytics.statsCommand(interaction, true);
     if (interaction.commandName === 'stats') return staffAnalytics.statsCommand(interaction, false);
     if (interaction.commandName === 'check_punishments') return staffAnalytics.checkPunishments(interaction);
@@ -509,6 +525,8 @@ async function handleInteraction(interaction) {
     if (interaction.commandName === 'end_guess_politician') return guessPoliticianSystem.endCommand(interaction);
     if (interaction.commandName === 'start_flagrush') return flagRushSystem.startCommand(interaction);
     if (interaction.commandName === 'end_flagrush') return flagRushSystem.endCommand(interaction);
+    if (interaction.commandName === 'start_mysterygen') return mysteryGenSystem.startCommand(interaction);
+    if (interaction.commandName === 'end_mysterygen') return mysteryGenSystem.endCommand(interaction);
     if (interaction.commandName === 'start_math') return learningGames.startMath(interaction);
     if (interaction.commandName === 'stop_math') return learningGames.stopMath(interaction);
     if (interaction.commandName === 'start_language_game') return learningGames.startLanguage(interaction);
@@ -545,4 +563,5 @@ async function handleInteraction(interaction) {
   }
 }
 
-module.exports = { commands, handleInteraction, handlePrefixMute };
+module.exports = { commands, staffRankingCommand, handleInteraction, handlePrefixMute };
+      
