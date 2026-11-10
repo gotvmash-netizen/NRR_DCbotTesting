@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, Events, REST, Routes, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, Events, PermissionFlagsBits, ActivityType } = require('discord.js');
 const { config, validate } = require('./config');
 const db = require('./db');
 const { handleInteraction, handlePrefixMute } = require('./commands');
@@ -10,27 +10,21 @@ const wordkillSystem = require('./wordkill');
 const politicalTriviaSystem = require('./political-trivia');
 const guessPoliticianSystem = require('./guess-the-politician');
 const flagRushSystem = require('./flagrush');
+const mysteryGenSystem = require('./mysterygen');
 const chessPuzzleSystem = require('./chess-puzzle');
 const learningGames = require('./learning-games');
 const newsSystem = require('./news');
 const qotdSystem = require('./qotd');
+const boosterAssets = require('./booster-assets');
 const chatRevivalSystem = require('./chat-revival');
 const automationControl = require('./automation-control');
 const gameRotationSystem = require('./game-rotation');
 const staffAnalytics = require('./staff-analytics');
+const staffRanking = require('./staff-ranking');
+const { registerApplicationCommands } = require('./command-registration');
 
 validate();
 
-async function registerApplicationCommands() {
-  const rest = new REST({ version: '10' }).setToken(config.token);
-  const route = config.guildId
-    ? Routes.applicationGuildCommands(config.clientId, config.guildId)
-    : Routes.applicationCommands(config.clientId);
-  const commandList = require('./commands').commands;
-  console.log(`Registering ${commandList.length} application commands...`);
-  await rest.put(route, { body: commandList.map(command => command.toJSON()) });
-  console.log('Application commands registered successfully.');
-}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMessageReactions],
@@ -38,11 +32,27 @@ const client = new Client({
 
 client.once(Events.ClientReady, async readyClient => {
   console.log(`Logged in as ${readyClient.user.tag}`);
+  readyClient.user.setPresence({
+    status: 'online',
+    activities: [
+      {
+        name: 'Initiating Orbital Strike on NR3.. 🚀',
+        type: ActivityType.Playing
+      },
+      {
+        name: 'Custom Status',
+        type: ActivityType.Custom,
+        state: 'PLAY /STEAL_OR_NOSTEAL RIGHT NOW IN NRR!'
+      }
+    ]
+  });
   try {
     await registerApplicationCommands();
     await db.migrate();
     await staffAnalytics.migrate();
+    await staffRanking.startScheduler(readyClient);
     await qotdSystem.migrate();
+    await boosterAssets.migrate();
     console.log('Database migrations ready.');
     await staffAnalytics.backfillAuditLogs(readyClient);
     setInterval(() => staffAnalytics.backfillAuditLogs(readyClient).catch(error => console.error('Punishment audit scan failed:', error)), 10 * 60 * 1000);
@@ -116,11 +126,14 @@ client.on(Events.MessageDelete, async message => {
 
 client.on(Events.MessageCreate, async message => {
   try { await handlePrefixMute(message); } catch (error) { console.error('Prefix mute command failed:', error); }
+  try { await staffRanking.handlePrefixMessage(message); } catch (error) { console.error('Staff ranking prefix command failed:', error); }
+  try { await staffRanking.handleDiagnosticsMessage(message); } catch (error) { console.error('Staff ranking diagnostics command failed:', error); }
   if (message.guild && !message.author.bot && !message.webhookId) {
     const raw = message.content.trim();
     if (/^!send_news$/i.test(raw)) { if (!message.member?.permissions?.has(PermissionFlagsBits.ManageGuild)) return message.reply('❌ You need Manage Server permission to send manual news.'); try { await newsSystem.sendLatest(client, message); } catch (error) { console.error('Manual news command failed:', error); await message.reply('❌ I could not fetch or post a news story right now.'); } }
     else if (/^!send_qotd$/i.test(raw)) { try { await qotdSystem.sendPanel(message); } catch (error) { console.error('QOTD panel command failed:', error); await message.reply('❌ I could not post the QOTD submission panel.'); } }
     else if (/^!set_qotd_channel\s+/i.test(raw)) { try { await qotdSystem.setChannel(message, raw.split(/\s+/)[1]); } catch (error) { console.error('QOTD channel setup failed:', error); await message.reply('❌ I could not update the QOTD channel.'); } }
+    else if (/^!reveal$/i.test(raw)) { try { await mysteryGenSystem.revealCommand(message); } catch (error) { console.error('MysteryGen reveal command failed:', error); await message.reply('I could not reveal the current MysteryGen item.').catch(() => {}); } }
   }
   try { await handlePrefixRoleCommands(message); } catch (error) { console.error('Hoster Manager role command failed:', error); }
   // Automation controls remain inactive while Chat Revival and game invitations are paused.
@@ -131,6 +144,7 @@ client.on(Events.MessageCreate, async message => {
   try { await politicalTriviaSystem.onMessage(message); } catch (error) { console.error('Political Trivia message error:', error); }
   try { await guessPoliticianSystem.onMessage(message); } catch (error) { console.error('Guess The Politician message error:', error); }
   try { await flagRushSystem.onMessage(message); } catch (error) { console.error('FlagRush message error:', error); }
+  try { await mysteryGenSystem.onMessage(message); } catch (error) { console.error('MysteryGen message error:', error); }
   try { await chessPuzzleSystem.onMessage(message); } catch (error) { console.error('Chess Puzzle message error:', error); }
   try { await eventSystem.onMessage(message); } catch (error) { console.error('Event stick error:', error); }
   try { await annihilateSystem.onMessage(message); } catch (error) { console.error('Annihilate message error:', error); }
@@ -147,6 +161,7 @@ client.on(Events.MessageReactionAdd, async (reaction, user) => {
 
 client.on(Events.InteractionCreate, async interaction => {
   try {
+    if (interaction.isButton() && interaction.customId.startsWith('mysterygen:')) return await mysteryGenSystem.onButton(interaction);
     if (interaction.isButton() && interaction.customId.startsWith('qotd:')) return await qotdSystem.onButton(interaction);
     if (interaction.isModalSubmit() && interaction.customId.startsWith('qotd:')) return await qotdSystem.onModal(interaction);
     await handleInteraction(interaction);
@@ -162,3 +177,4 @@ process.on('unhandledRejection', error => console.error('Unhandled rejection:', 
 process.on('uncaughtException', error => console.error('Uncaught exception:', error));
 
 client.login(config.token);
+          
